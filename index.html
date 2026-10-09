@@ -58,7 +58,9 @@ button{cursor:pointer}
 .mapwrap{position:relative;min-width:0;min-height:0;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px var(--line),0 14px 34px -22px rgba(0,0,0,.55);background:#7d8a6c}
 #map{display:block;position:relative;z-index:1;touch-action:none;cursor:grab}
 #map3d{position:absolute;inset:0;width:100%;height:100%;display:block}
-.mapctl,.maphint,.actbtn,.talk{z-index:2}
+.mapctl,.maphint,.actbtn,.talk,.note3d{z-index:2}
+.note3d{position:absolute;left:12px;top:12px;margin:0;max-width:min(420px,calc(100% - 100px));padding:8px 12px;border-radius:10px;background:rgba(20,24,22,.82);color:#f5f3ea;font-size:13.5px;line-height:1.5}
+.note3d button{margin-left:6px;border:0;border-radius:6px;padding:2px 8px;background:#f4c84a;color:#1b1a14;font-weight:700}
 .mapctl{position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:6px}
 .mapctl button{min-width:48px;height:42px;padding:0 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:16px;font-weight:700;box-shadow:0 4px 12px -6px rgba(0,0,0,.45)}
 .mapctl button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
@@ -220,6 +222,7 @@ button{cursor:pointer}
   <main class="stage">
     <div class="mapwrap" id="mapwrap"><canvas id="map3d" hidden aria-hidden="true"></canvas><canvas id="map" aria-label="哲人小鎮地圖：拖曳移動、滾輪縮放，點擊哲學家或房子查看介紹，雙擊房子進門拜訪"></canvas>
       <div class="mapctl" role="group" aria-label="地圖控制"><button type="button" id="viewBtn" aria-pressed="false">2D 地圖</button><button type="button" id="zIn" aria-label="放大地圖">＋</button><button type="button" id="zOut" aria-label="縮小地圖">－</button><button type="button" id="zFit">全景</button><button type="button" id="sideBtn" aria-pressed="false">隱藏側欄</button></div>
+      <p class="note3d" id="note3d" hidden></p>
       <p class="maphint" id="mapHint">方向鍵／WASD 走路 · 點地圖移動 · 點擊人物就會走過去聊天，走到門口就會進門 · 滾輪縮放</p>
       <button class="actbtn" id="actBtn" type="button" hidden></button>
       <div class="talk" id="talk" hidden>
@@ -1290,9 +1293,10 @@ function frame(now){
 
 /* ---------- panel UI ---------- */
 const logEl=$('#log');
+function escH(t){return String(t==null?'':t).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function mountDebate(d){
   const el=document.createElement('details');el.className='deb';el.open=true;
-  el.innerHTML=`<summary><span class="pair"><i class="dot" style="--c:${dotColor(d.a)}"></i>${d.a.zh}<span class="vs">×</span><i class="dot" style="--c:${dotColor(d.b)}"></i>${d.b.zh}</span><span class="chip">${THEMES[d.theme]}</span><span class="chip live" hidden>Claude 即興</span><span class="state">進行中</span><span class="where">${d.place} · ${d.time}</span></summary><div class="lines"></div>`;
+  el.innerHTML=`<summary><span class="pair"><i class="dot" style="--c:${dotColor(d.a)}"></i>${d.a.zh}<span class="vs">×</span><i class="dot" style="--c:${dotColor(d.b)}"></i>${d.b.zh}</span><span class="chip">${escH(THEMES[d.theme]||'')}</span><span class="chip live" hidden>Claude 即興</span><span class="state">進行中</span><span class="where">${escH(d.place)} · ${escH(d.time)}</span></summary><div class="lines"></div>`;
   d.el=el;logEl.prepend(el);$('#logEmpty').hidden=true;
   while(logEl.children.length>60)logEl.lastElementChild.remove();
   $('#logCount').textContent=NET.role==='guest'?logEl.children.length:dseq;
@@ -2152,9 +2156,9 @@ function makeFigureOld(p){
   g3.scene.add(g);g3.figs[p.id]=g;return g;
 }
 function init3D(){
-  if(!window.THREE)return false;
-  let renderer;try{renderer=new THREE.WebGLRenderer({canvas:$('#map3d'),antialias:true});}catch(e){return false;}
-  if(!renderer||!renderer.getContext())return false;
+  if(!window.THREE){g3.fail='lib';return false;}
+  let renderer;try{renderer=new THREE.WebGLRenderer({canvas:$('#map3d'),antialias:true,powerPreference:'high-performance'});}catch(e){g3.fail='webgl';return false;}
+  if(!renderer||!renderer.getContext()){g3.fail='webgl';return false;}
   try{
     g3.renderer=renderer;renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
     renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -2175,7 +2179,7 @@ function init3D(){
     orb.tx=(me.x-800)*S3;orb.tz=(me.y-CY3)*S3;orb.ty=heightAt(me.x,me.y)+2;
     g3.ray=new THREE.Raycaster();
     return true;
-  }catch(e){console.error(e);return false;}
+  }catch(e){console.error(e);g3.fail='error: '+(e&&e.message||e);return false;}
 }
 function repaintGround3D(){if(!g3.ok)return;const c=g3.groundCv.getContext('2d');const GR=g3.groundCv.width;c.setTransform(GR/W,0,0,GR/W,0,0);paintMap(c,true);g3.groundTex.needsUpdate=true;}
 const _pv=()=>new THREE.Vector3();let _v3=null;
@@ -3440,6 +3444,12 @@ function netUI(){
 P.forEach(placeInitial);
 renderIntro();
 g3.ok=init3D();if(!g3.ok)$('#viewBtn').hidden=true;
+function note3D(){const n=$('#note3d');if(g3.ok||!g3.fail){n.hidden=true;return;}
+  n.textContent=g3.fail==='webgl'?'這台裝置的瀏覽器沒有開啟 3D 繪圖（WebGL），所以先用 2D 地圖。Chrome 請到「設定 → 系統」打開「使用圖形加速功能」後重新整理；Safari 若開了「鎖定模式」也會關掉 3D。':g3.fail==='lib'?'3D 引擎沒有載入成功（可能被網路擋住），正在改用備用來源……':'3D 啟動失敗，先用 2D 地圖。（'+g3.fail+'）';
+  const b=document.createElement('button');b.type='button';b.textContent='知道了';b.onclick=()=>{n.hidden=true;};n.append(b);n.hidden=false;}
+function retry3D(){g3.fail=null;g3.ok=init3D();if(g3.ok){for(const o of NET.others.values())if(!g3.figs[o.id]){const sm=g3.marker;makeFigure(o);if(sm)g3.marker=sm;}$('#viewBtn').hidden=false;resize();setView3D(true);}note3D();}
+if(!g3.ok&&g3.fail==='lib'){const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js';sc.onload=retry3D;sc.onerror=()=>{g3.fail='3D 引擎無法從網路下載';note3D();};document.head.append(sc);}
+setTimeout(note3D,0);
 new ResizeObserver(()=>resize()).observe($('#mapwrap'));
 resize();
 setView3D(g3.ok);
